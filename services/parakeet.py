@@ -40,24 +40,40 @@ def transcribe(file_bytes: bytes, filename: str = "audio.ogg") -> str:
 
     mime = _get_mime(filename)
     upload_done = threading.Event()
+    upload_response = [None]  # cattura la risposta se arriva entro il timeout
 
     def _upload():
         try:
-            requests.post(
+            resp = requests.post(
                 f"{PARAKEET_URL}/v1/audio/transcriptions",
                 files={"file": (filename, io.BytesIO(file_bytes), mime)},
                 data={"model": PARAKEET_MODEL, "response_format": "verbose_json"},
                 verify=False,
-                timeout=5,  # timeout corto: il proxy chiude prima del completamento, è atteso
+                timeout=5,
             )
+            if resp.ok:
+                upload_response[0] = resp
+        except requests.exceptions.Timeout:
+            pass  # atteso per audio lunghi — il proxy chiude prima, il job è avviato
         except Exception:
-            pass  # 504 dal proxy è normale — il job è comunque avviato
+            pass
         finally:
             upload_done.set()
 
     threading.Thread(target=_upload, daemon=True).start()
     upload_done.wait()
 
+    # Fast path: audio breve → la trascrizione è già nella risposta dell'upload
+    if upload_response[0] is not None:
+        try:
+            text = upload_response[0].json().get("text", "")
+            if text:
+                logger.info("Parakeet: trascrizione ottenuta dalla risposta diretta (audio breve)")
+                return text
+        except Exception:
+            pass
+
+    # Slow path: audio lungo → upload scaduto per timeout, si usa polling su /status
     start = time.time()
     final_text = ""
     job_seen = False
