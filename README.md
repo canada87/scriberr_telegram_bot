@@ -56,6 +56,17 @@ pip install -r requirements.txt
 python main.py
 ```
 
+## Comandi Telegram
+
+| Comando | Descrizione |
+|---------|-------------|
+| _(audio / voice message)_ | Avvia la trascrizione con il servizio attivo |
+| `/servizio` | Mostra il servizio attualmente attivo |
+| `/servizio scriberr` | Imposta Scriberr come servizio attivo |
+| `/servizio parakeet` | Imposta Parakeet come servizio attivo |
+
+Il servizio può essere cambiato anche dalla web UI senza riavviare il bot.
+
 ## Web UI
 
 Dashboard di audit accessibile via browser. Mostra per ogni trascrizione:
