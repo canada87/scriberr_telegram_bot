@@ -1,0 +1,12 @@
+services:
+  transcription-bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    volumes:
+      - bot_data:/app/data
+
+volumes:
+  bot_data:

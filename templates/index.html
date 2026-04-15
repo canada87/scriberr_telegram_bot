@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Transcription Bot — Audit Log</title>
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+  />
+  <style>
+    :root {
+      --bg:        #0f172a;
+      --surface:   #1e293b;
+      --surface2:  #263348;
+      --border:    #334155;
+      --text:      #e2e8f0;
+      --muted:     #94a3b8;
+      --accent:    #38bdf8;
+      --green:     #22c55e;
+      --red:       #ef4444;
+      --scriberr:  #3b82f6;
+      --parakeet:  #a855f7;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      font-family: "Inter", system-ui, sans-serif;
+    }
+
+    /* ---- header ---- */
+    .site-header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    .site-header h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin: 0;
+      color: var(--accent);
+    }
+    /* ---- service toggle ---- */
+    .svc-toggle {
+      display: flex;
+      gap: 0.2rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 9999px;
+      padding: 0.2rem;
+    }
+    .svc-btn {
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.2rem 0.85rem;
+      border-radius: 9999px;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      transition: background 0.15s, color 0.15s;
+    }
+    .svc-btn:hover { color: var(--text); }
+    .svc-btn[data-service="scriberr"].active { background: var(--scriberr); color: #fff; }
+    .svc-btn[data-service="parakeet"].active { background: var(--parakeet); color: #fff; }
+    .svc-btn.saving { opacity: 0.5; pointer-events: none; }
+
+    .refresh-info {
+      margin-left: auto;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    /* ---- stats ---- */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 1rem;
+      padding: 1.25rem 1.5rem;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      padding: 1rem 1.25rem;
+    }
+    .stat-card .label {
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 0.35rem;
+    }
+    .stat-card .value {
+      font-size: 1.75rem;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .stat-card .sub {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-top: 0.25rem;
+    }
+    .value-green  { color: var(--green); }
+    .value-red    { color: var(--red); }
+    .value-accent { color: var(--accent); }
+
+    /* ---- table ---- */
+    .table-wrapper {
+      padding: 0 1.5rem 2rem;
+    }
+    .table {
+      color: var(--text);
+      border-color: var(--border);
+    }
+    .table thead th {
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      border-color: var(--border);
+      white-space: nowrap;
+    }
+    .table tbody tr {
+      background: var(--bg);
+      border-color: var(--border);
+    }
+    .table tbody tr:hover {
+      background: var(--surface2);
+    }
+    .table td {
+      border-color: var(--border);
+      vertical-align: middle;
+      font-size: 0.85rem;
+    }
+
+    /* badges */
+    .badge-service-scriberr {
+      background: var(--scriberr);
+      color: #fff;
+    }
+    .badge-service-parakeet {
+      background: var(--parakeet);
+      color: #fff;
+    }
+    .badge-ok  { background: var(--green); color: #fff; }
+    .badge-err { background: var(--red);   color: #fff; }
+
+    .user-cell .username { color: var(--muted); font-size: 0.75rem; }
+    .duration-cell { white-space: nowrap; }
+    .error-cell {
+      max-width: 220px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--red);
+      font-size: 0.78rem;
+    }
+
+    /* ---- pagination ---- */
+    .pagination .page-link {
+      background: var(--surface);
+      border-color: var(--border);
+      color: var(--text);
+    }
+    .pagination .page-link:hover {
+      background: var(--surface2);
+      color: var(--accent);
+    }
+    .pagination .page-item.active .page-link {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #0f172a;
+      font-weight: 700;
+    }
+    .pagination .page-item.disabled .page-link {
+      background: var(--surface);
+      color: var(--muted);
+    }
+
+    .empty-state {
+      text-align: center;
+      color: var(--muted);
+      padding: 3rem 1rem;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ===== HEADER ===== -->
+<header class="site-header">
+  <h1>Transcription Bot</h1>
+  <div class="svc-toggle" id="svc-toggle">
+    <button class="svc-btn{% if service == 'scriberr' %} active{% endif %}"
+            data-service="scriberr" onclick="setService('scriberr')">Scriberr</button>
+    <button class="svc-btn{% if service == 'parakeet' %} active{% endif %}"
+            data-service="parakeet" onclick="setService('parakeet')">Parakeet</button>
+  </div>
+  <span class="refresh-info" id="refresh-countdown">
+    aggiornamento tra <span id="countdown">30</span>s
+  </span>
+</header>
+
+<!-- ===== STATS ===== -->
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="label">Totale</div>
+    <div class="value value-accent">{{ stats.total }}</div>
+    <div class="sub">trascrizioni</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Riuscite</div>
+    <div class="value value-green">{{ stats.success }}</div>
+    <div class="sub">
+      {% if stats.total > 0 %}
+        {{ "%.0f"|format(stats.success / stats.total * 100) }}% success rate
+      {% else %}—{% endif %}
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Errori</div>
+    <div class="value {% if stats.errors > 0 %}value-red{% else %}value-green{% endif %}">
+      {{ stats.errors }}
+    </div>
+    <div class="sub">fallite</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Tempo medio</div>
+    <div class="value value-accent">
+      {% if stats.avg_time is not none %}{{ stats.avg_time }}s{% else %}—{% endif %}
+    </div>
+    <div class="sub">elaborazione (ok)</div>
+  </div>
+  {% for svc, cnt in stats.by_service.items() %}
+  <div class="stat-card">
+    <div class="label">{{ svc }}</div>
+    <div class="value value-accent">{{ cnt }}</div>
+    <div class="sub">chiamate</div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- ===== TABLE ===== -->
+<div class="table-wrapper">
+  {% if logs %}
+  <div class="table-responsive">
+    <table class="table table-hover align-middle">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Timestamp</th>
+          <th>Utente</th>
+          <th>Chat</th>
+          <th>Durata</th>
+          <th>Servizio</th>
+          <th>Stato</th>
+          <th>Elab.</th>
+          <th>Errore</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in logs %}
+        <tr>
+          <td class="text-muted" style="font-size:0.75rem">{{ row.id }}</td>
+          <td style="white-space:nowrap">{{ row.timestamp }}</td>
+          <td class="user-cell">
+            {% if row.full_name %}
+              <div>{{ row.full_name }}</div>
+            {% endif %}
+            {% if row.username %}
+              <div class="username">@{{ row.username }}</div>
+            {% endif %}
+            {% if not row.full_name and not row.username %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if row.chat_title %}{{ row.chat_title }}
+            {% elif row.chat_id %}<span class="text-muted">{{ row.chat_id }}</span>
+            {% else %}—{% endif %}
+          </td>
+          <td class="duration-cell">
+            {% if row.audio_duration is not none %}
+              {{ "%d:%02d"|format(row.audio_duration // 60, row.audio_duration % 60) }}
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            <span class="badge badge-service-{{ row.service }}">{{ row.service }}</span>
+          </td>
+          <td>
+            {% if row.status == "success" %}
+              <span class="badge badge-ok">ok</span>
+            {% else %}
+              <span class="badge badge-err">errore</span>
+            {% endif %}
+          </td>
+          <td style="white-space:nowrap">
+            {% if row.processing_time is not none %}{{ row.processing_time }}s{% else %}—{% endif %}
+          </td>
+          <td class="error-cell" title="{{ row.error_message or '' }}">
+            {{ row.error_message or "" }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- pagination -->
+  {% if total_pages > 1 %}
+  <nav class="d-flex justify-content-center mt-3">
+    <ul class="pagination pagination-sm">
+      <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+        <a class="page-link" href="?page={{ page - 1 }}">‹</a>
+      </li>
+      {% for p in range(1, total_pages + 1) %}
+        {% if p == page or p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+          <li class="page-item {% if p == page %}active{% endif %}">
+            <a class="page-link" href="?page={{ p }}">{{ p }}</a>
+          </li>
+        {% elif p == page - 3 or p == page + 3 %}
+          <li class="page-item disabled"><span class="page-link">…</span></li>
+        {% endif %}
+      {% endfor %}
+      <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+        <a class="page-link" href="?page={{ page + 1 }}">›</a>
+      </li>
+    </ul>
+  </nav>
+  {% endif %}
+
+  {% else %}
+  <div class="empty-state">
+    <p style="font-size:2rem">🎤</p>
+    <p>Nessuna trascrizione ancora.<br>Manda un audio al bot per iniziare.</p>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+  // countdown + auto-refresh
+  let remaining = 30;
+  const el = document.getElementById("countdown");
+  setInterval(() => {
+    remaining--;
+    if (remaining <= 0) {
+      window.location.reload();
+    } else {
+      el.textContent = remaining;
+    }
+  }, 1000);
+
+  // service toggle
+  async function setService(name) {
+    const btns = document.querySelectorAll('.svc-btn');
+    btns.forEach(b => b.classList.add('saving'));
+    try {
+      const resp = await fetch('/api/service', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ service: name })
+      });
+      if (resp.ok) {
+        btns.forEach(b => b.classList.remove('active'));
+        document.querySelector(`.svc-btn[data-service="${name}"]`).classList.add('active');
+      }
+    } finally {
+      btns.forEach(b => b.classList.remove('saving'));
+    }
+  }
+</script>
+
+</body>
+</html>
