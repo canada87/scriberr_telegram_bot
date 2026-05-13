@@ -40,6 +40,7 @@ def transcribe(file_bytes: bytes, filename: str = "audio.ogg") -> str:
 
     mime = _get_mime(filename)
     upload_response = [None]
+    upload_done = threading.Event()
 
     def _upload():
         try:
@@ -48,17 +49,22 @@ def transcribe(file_bytes: bytes, filename: str = "audio.ogg") -> str:
                 files={"file": (filename, io.BytesIO(file_bytes), mime)},
                 data={"model": PARAKEET_MODEL, "response_format": "verbose_json"},
                 verify=False,
-                timeout=5,
+                # connect timeout 10s, read timeout = TIMEOUT: per audio brevi/medi il
+                # server risponde direttamente senza bisogno del polling
+                timeout=(10, TIMEOUT),
             )
             if resp.ok:
                 upload_response[0] = resp
+                logger.debug("Parakeet POST response: %s", resp.text[:200])
         except requests.exceptions.Timeout:
-            pass  # atteso per audio lunghi — il proxy chiude prima, il job è avviato
-        except Exception:
-            pass
+            logger.debug("Parakeet POST timeout (atteso se il proxy chiude la connessione)")
+        except Exception as exc:
+            logger.warning("Parakeet POST error: %s", exc)
+        finally:
+            upload_done.set()
 
     # Avvia upload in background e inizia subito il polling (come AudioVault).
-    # Non aspettiamo upload_done: il ritardo extra (5s upload + 3s poll = 8s)
+    # Non aspettiamo upload_done: il ritardo extra (timeout + poll_interval)
     # farebbe perdere i job che finiscono prima del primo poll.
     threading.Thread(target=_upload, daemon=True).start()
 
@@ -72,12 +78,12 @@ def transcribe(file_bytes: bytes, filename: str = "audio.ogg") -> str:
 
         time.sleep(POLL_INTERVAL)
 
-        # Fast path: se l'upload è già tornato con il testo (audio breve)
+        # Fast path: se l'upload è già tornato con il testo (server risponde direttamente)
         if upload_response[0] is not None:
             try:
                 text = upload_response[0].json().get("text", "")
                 if text:
-                    logger.info("Parakeet: trascrizione ottenuta dalla risposta diretta (audio breve)")
+                    logger.info("Parakeet: trascrizione dalla risposta POST diretta")
                     return text
             except Exception:
                 pass
@@ -91,24 +97,30 @@ def transcribe(file_bytes: bytes, filename: str = "audio.ogg") -> str:
 
         job_id = data.get("job_id", "")
         partial = data.get("partial_text", "")
+        status = data.get("status", "")
+
+        logger.debug(
+            "Parakeet /status: status=%r job_id=%r partial_len=%d chunk=%s/%s",
+            status, job_id, len(partial),
+            data.get("current_chunk"), data.get("total_chunks"),
+        )
 
         if job_id:
             job_seen = True
 
-        # Teniamo il testo più lungo visto finora (l'idle post-job può ancora
-        # contenere il partial_text dell'ultimo chunk)
+        # Teniamo il testo più lungo visto finora
         if partial and len(partial) >= len(final_text):
             final_text = partial
 
         # Server idle senza job e senza averlo mai visto: upload ancora in corso
-        if data.get("status") == "idle" and not job_id and not job_seen:
+        if status == "idle" and not job_id and not job_seen:
             continue
 
-        # Job completato
-        if data.get("status") == "idle" and not job_id and job_seen:
+        # Job completato: server tornato idle dopo che il job era visibile
+        if status == "idle" and not job_id and job_seen:
             break
 
-    # Grace-period poll: il server potrebbe ancora stare svuotando il partial_text
+    # Grace-period poll: il server potrebbe ancora svuotare il partial_text
     # dell'ultimo chunk proprio mentre transisce a idle
     time.sleep(min(POLL_INTERVAL, 2))
     try:
@@ -116,11 +128,24 @@ def transcribe(file_bytes: bytes, filename: str = "audio.ogg") -> str:
         data = resp.json()
         partial = data.get("partial_text", "")
         if partial and len(partial) > len(final_text):
+            logger.debug("Parakeet grace-period: recuperati %d caratteri", len(partial))
             final_text = partial
     except Exception:
         pass
 
     if not final_text:
+        # Fallback: attende che l'upload thread finisca e usa la risposta POST
+        remaining = max(0, TIMEOUT - (time.time() - start))
+        logger.info("Parakeet: partial_text vuoto, attendo risposta POST (%.0fs rimasti)", remaining)
+        upload_done.wait(timeout=remaining)
+        if upload_response[0] is not None:
+            try:
+                text = upload_response[0].json().get("text", "")
+                if text:
+                    logger.info("Parakeet: testo recuperato dalla risposta POST (fallback)")
+                    return text
+            except Exception:
+                pass
         raise ValueError("Parakeet: job completato ma nessun testo restituito")
 
     return final_text
